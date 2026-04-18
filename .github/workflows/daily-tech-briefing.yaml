@@ -1,0 +1,85 @@
+name: Daily Tech Briefing
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Requested by you: 08:00 Europe/Bucharest
+    - cron: '8 8 * * *'
+      timezone: 'Europe/Bucharest'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-tech-briefing
+  cancel-in-progress: false
+
+jobs:
+  generate-briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      TZ: Europe/Bucharest
+      BRIEFING_LANGUAGE: en
+      OUTPUT_ROOT: briefings
+      OPENAI_MODEL: gpt-5.4
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "ERROR: OPENAI_API_KEY is not set."
+            exit 1
+          fi
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Install required packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Generate briefing
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/generate_daily_briefing.sh
+          scripts/generate_daily_briefing.sh
+
+      - name: Commit and push briefing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          briefing_date="$(date +%F)"
+          briefing_path="briefings/$(date +%Y)/$(date +%m)/${briefing_date}.md"
+
+          if [ ! -f "${briefing_path}" ]; then
+            echo "ERROR: Expected briefing file not found: ${briefing_path}"
+            exit 1
+          fi
+
+          if git diff --quiet -- "${briefing_path}"; then
+            echo "No changes detected for ${briefing_path}. Nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "${briefing_path}"
+          git commit -m "docs(briefing): add daily briefing for ${briefing_date}"
+          git push
