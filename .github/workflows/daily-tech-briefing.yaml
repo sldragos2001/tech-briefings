@@ -76,5 +76,6 @@ jobs:
               echo "No changes detected in index. Nothing to commit."
               exit 0
           fi
-          git commit -m "docs(briefing): add daily briefing for ${briefing_date}"
+          git add briefings/
+          git commit -m "docs(briefing): add daily briefing for ${briefing_date}" || echo "Nothing to commit"
           git push
