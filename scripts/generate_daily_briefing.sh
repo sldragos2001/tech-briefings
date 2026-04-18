@@ -122,6 +122,10 @@ Requirements:
 - Focus on developments of the day or the most recent credible developments available today
 - Avoid filler and hype
 - Do not include raw URLs
+- Target length: 450-650 words
+- Do not exceed 700 words
+- Keep sentences concise
+- Avoid repetition
 EOF
 
   jq -n \
