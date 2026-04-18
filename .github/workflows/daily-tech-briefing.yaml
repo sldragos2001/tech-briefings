@@ -23,7 +23,7 @@ jobs:
       TZ: Europe/Bucharest
       BRIEFING_LANGUAGE: en
       OUTPUT_ROOT: briefings
-      OPENAI_MODEL: gpt-5.4 nano
+      OPENAI_MODEL: gpt-5.4-nano
 
     steps:
       - name: Checkout repository
