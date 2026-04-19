@@ -3,7 +3,7 @@ name: Daily Tech Briefing
 on:
   workflow_dispatch:
   schedule:
-    - cron: '23 8 * * 1,4'
+    - cron: '58 8 * * *'
       timezone: 'Europe/Bucharest'
 
 permissions:
