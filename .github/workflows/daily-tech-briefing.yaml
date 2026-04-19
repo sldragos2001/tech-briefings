@@ -66,16 +66,13 @@ jobs:
           briefing_date="$(date +%F)"
           briefing_path="briefings/$(date +%Y)/$(date +%m)/${briefing_date}.md"
           if [ ! -f "${briefing_path}" ]; then
-              echo "ERROR: Expected briefing file not found: ${briefing_path}"
-              exit 1
+           echo "ERROR: Expected briefing file not found: ${briefing_path}"
+           exit 1
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add "${briefing_path}"
-          if git diff --cached --quiet; then
-              echo "No changes detected in index. Nothing to commit."
-              exit 0
-          fi
-          git add briefings/
+
           git commit -m "docs(briefing): add daily briefing for ${briefing_date}" || echo "Nothing to commit"
           git push
