@@ -2,7 +2,7 @@ name: Daily Tech Briefing
 
 on:
   schedule:
-    - cron: '58 8 * * *'
+    - cron: '58 8 * * 1,4'
       timezone: 'Europe/Bucharest'
   workflow_dispatch:
 
