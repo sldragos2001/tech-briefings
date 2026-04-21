@@ -2,33 +2,19 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
-LOG_FILE="/tmp/${SCRIPT_NAME%.sh}.log"
-DRY_RUN="false"
+SCRIPT_BASE="${SCRIPT_NAME%.sh}"
 
-usage() {
-  cat <<'EOF'
-Usage:
-  generate_daily_briefing.sh [--dry-run]
+LOG_DIR="${LOG_DIR:-/tmp}"
+LOG_FILE="${LOG_DIR}/${SCRIPT_BASE}.log"
 
-Description:
-  Generates a daily tech briefing in Markdown under:
-    briefings/YYYY/MM/YYYY-MM-DD.md
+TMP_DIR=""
 
-Required environment variables:
-  OPENAI_API_KEY
-  OPENAI_MODEL         (example: gpt-5.4)
-  BRIEFING_LANGUAGE    (example: en)
-  OUTPUT_ROOT          (example: briefings)
-  TZ                   (example: Europe/Bucharest)
-
-Options:
-  --dry-run            Generate output locally without writing final file
-  -h, --help           Show this help message
-EOF
+log_info() {
+  printf '%s [INFO]  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
 }
 
-log() {
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
+log_error() {
+  printf '%s [ERROR] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE" >&2
 }
 
 cleanup() {
@@ -36,11 +22,11 @@ cleanup() {
     rm -rf "$TMP_DIR"
   fi
 }
-trap cleanup EXIT
+trap cleanup EXIT HUP INT TERM
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
-    log "ERROR: Required command not found: $1"
+    log_error "Required command not found: $1"
     exit 1
   }
 }
@@ -53,59 +39,97 @@ validate_env() {
   : "${TZ:?TZ is required}"
 }
 
-parse_args() {
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --dry-run)
-        DRY_RUN="true"
-        shift
-        ;;
-      -h|--help)
-        usage
-        exit 0
-        ;;
-      *)
-        log "ERROR: Unknown argument: $1"
-        usage
-        exit 1
-        ;;
-    esac
-  done
+validate_tz() {
+  if ! TZ="$TZ" date '+%Y-%m-%d %H:%M:%S' >/dev/null 2>&1; then
+    log_error "Invalid TZ value: $TZ"
+    exit 1
+  fi
 }
 
-main() {
-  parse_args "$@"
+validate_output_root() {
+  case "$OUTPUT_ROOT" in
+    ""|"/")
+      log_error "OUTPUT_ROOT must not be empty or /"
+      exit 1
+      ;;
+  esac
+}
 
-  require_cmd curl
-  require_cmd jq
-  require_cmd date
-  require_cmd mkdir
-  require_cmd tee
+validate_log_dir() {
+  if [ ! -d "$LOG_DIR" ]; then
+    log_error "LOG_DIR does not exist: $LOG_DIR"
+    exit 1
+  fi
 
-  validate_env
+  if [ ! -w "$LOG_DIR" ]; then
+    log_error "LOG_DIR is not writable: $LOG_DIR"
+    exit 1
+  fi
+}
 
-  TMP_DIR="$(mktemp -d)"
-  PROMPT_FILE="${TMP_DIR}/prompt.txt"
-  REQUEST_FILE="${TMP_DIR}/request.json"
-  RESPONSE_FILE="${TMP_DIR}/response.json"
-  CONTENT_FILE="${TMP_DIR}/briefing.md"
+extract_output_text() {
+  jq -r '
+    if (.output_text? // "") != "" then
+      .output_text
+    else
+      [
+        .output[]?
+        | .content[]?
+        | select(.type == "output_text")
+        | .text
+      ] | join("\n")
+    end
+  ' "$1"
+}
 
-  briefing_date="$(TZ="$TZ" date +%F)"
-  year="$(TZ="$TZ" date +%Y)"
-  month="$(TZ="$TZ" date +%m)"
-  output_dir="${OUTPUT_ROOT}/${year}/${month}"
-  output_file="${output_dir}/${briefing_date}.md"
+log_api_error_summary() {
+  response_file="$1"
 
-  mkdir -p "$output_dir"
+  if jq -e '.error' "$response_file" >/dev/null 2>&1; then
+    error_type="$(jq -r '.error.type // "unknown"' "$response_file" 2>/dev/null || printf 'unknown')"
+    error_message="$(jq -r '.error.message // "unknown error"' "$response_file" 2>/dev/null || printf 'unknown error')"
+    log_error "API error type: ${error_type}"
+    log_error "API error message: ${error_message}"
+  else
+    log_error "API request failed and no structured .error object was found in response"
+  fi
+}
 
-  cat > "$PROMPT_FILE" <<EOF
+validate_generated_content() {
+  content_file="$1"
+
+  if [ ! -s "$content_file" ]; then
+    log_error "Generated content is empty"
+    exit 1
+  fi
+
+  word_count="$(wc -w < "$content_file" | tr -d ' ')"
+
+  if [ "$word_count" -lt 450 ] || [ "$word_count" -gt 700 ]; then
+    log_error "Generated content length out of bounds: ${word_count} words"
+    exit 1
+  fi
+
+  if ! grep -qi 'TL;DR' "$content_file"; then
+    log_error "Generated content does not contain TL;DR"
+    exit 1
+  fi
+}
+
+build_prompt() {
+  prompt_file="$1"
+  briefing_date="$2"
+
+  cat > "$prompt_file" <<EOF
 You are a concise research assistant writing a daily briefing for senior engineering readers.
 
 Task:
-Find the top 2 developments of the day in:
+For each of these 3 categories:
 1. AI
 2. Cloud Computing
 3. DevOps
+
+Select exactly 2 developments.
 
 Requirements:
 - Write in ${BRIEFING_LANGUAGE}
@@ -127,9 +151,14 @@ Requirements:
 - Keep sentences concise
 - Avoid repetition
 EOF
+}
+
+build_request_json() {
+  prompt_file="$1"
+  request_file="$2"
 
   jq -n \
-    --rawfile prompt "$PROMPT_FILE" \
+    --rawfile prompt "$prompt_file" \
     --arg model "$OPENAI_MODEL" \
     '{
       model: $model,
@@ -141,52 +170,86 @@ EOF
           ]
         }
       ]
-    }' > "$REQUEST_FILE"
+    }' > "$request_file"
+}
 
-  log "Generating daily briefing for ${briefing_date} using model ${OPENAI_MODEL}"
+call_openai_api() {
+  request_file="$1"
+  response_file="$2"
 
   curl --silent --show-error --fail \
+    --connect-timeout 10 \
+    --max-time 180 \
+    --retry 3 \
+    --retry-delay 2 \
+    --retry-all-errors \
     --request POST \
     --url "https://api.openai.com/v1/responses" \
     --header "Authorization: Bearer ${OPENAI_API_KEY}" \
     --header "Content-Type: application/json" \
-    --data @"$REQUEST_FILE" \
-    > "$RESPONSE_FILE"
+    --data @"$request_file" \
+    > "$response_file"
+}
 
-  jq -r '
-    if .output_text then
-      .output_text
-    else
-      [
-        .output[]?
-        | .content[]?
-        | select(.type == "output_text")
-        | .text
-      ] | join("\n")
-    end
-  ' "$RESPONSE_FILE" > "$CONTENT_FILE"
+main() {
+  require_cmd basename
+  require_cmd curl
+  require_cmd jq
+  require_cmd date
+  require_cmd mkdir
+  require_cmd tee
+  require_cmd mktemp
+  require_cmd mv
+  require_cmd wc
+  require_cmd grep
+  require_cmd tr
+  require_cmd cat
 
-  if [ ! -s "$CONTENT_FILE" ]; then
-    log "ERROR: Generated content is empty"
-    log "Response payload:"
-    cat "$RESPONSE_FILE" >> "$LOG_FILE"
+  validate_log_dir
+  validate_env
+  validate_tz
+  validate_output_root
+
+  TMP_DIR="$(mktemp -d)"
+  PROMPT_FILE="${TMP_DIR}/prompt.txt"
+  REQUEST_FILE="${TMP_DIR}/request.json"
+  RESPONSE_FILE="${TMP_DIR}/response.json"
+  CONTENT_FILE="${TMP_DIR}/briefing.md"
+  FINAL_TMP_FILE="${TMP_DIR}/final.md"
+
+  briefing_date="$(TZ="$TZ" date +%F)"
+  year="$(TZ="$TZ" date +%Y)"
+  month="$(TZ="$TZ" date +%m)"
+  output_dir="${OUTPUT_ROOT}/${year}/${month}"
+  output_file="${output_dir}/${briefing_date}.md"
+
+  build_prompt "$PROMPT_FILE" "$briefing_date"
+  build_request_json "$PROMPT_FILE" "$REQUEST_FILE"
+
+  log_info "Generating daily briefing for ${briefing_date} using model ${OPENAI_MODEL}"
+
+  if ! call_openai_api "$REQUEST_FILE" "$RESPONSE_FILE"; then
+    log_api_error_summary "$RESPONSE_FILE"
     exit 1
   fi
+
+  if ! extract_output_text "$RESPONSE_FILE" > "$CONTENT_FILE"; then
+    log_error "Failed to parse API response"
+    exit 1
+  fi
+
+  validate_generated_content "$CONTENT_FILE"
 
   {
     printf '# Daily Tech Briefing — %s\n\n' "$briefing_date"
     cat "$CONTENT_FILE"
     printf '\n'
-  } > "${output_file}.tmp"
+  } > "$FINAL_TMP_FILE"
 
-  if [ "$DRY_RUN" = "true" ]; then
-    log "DRY-RUN enabled. Generated file preview:"
-    cat "${output_file}.tmp"
-    exit 0
-  fi
+  mkdir -p "$output_dir"
+  mv "$FINAL_TMP_FILE" "$output_file"
 
-  mv "${output_file}.tmp" "$output_file"
-  log "Briefing written to ${output_file}"
+  log_info "Briefing written to ${output_file}"
 }
 
-main "$@"
+main
