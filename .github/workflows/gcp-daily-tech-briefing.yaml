@@ -38,7 +38,14 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Payload construct
+          # 1. Verificăm dacă putem genera un token (Sanity Check)
+          TOKEN=$(gcloud auth print-access-token)
+          if [ -z "$TOKEN" ]; then
+            echo "FATAL: Could not generate GCP Access Token."
+            exit 1
+          fi
+
+          # 2. Construim payload-ul
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -46,31 +53,38 @@ jobs:
               generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # 2. Noul Endpoint format (Agent Platform 2026)
-          # Folosim generativeModels in loc de publishers/google/models
-          RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+          # 3. Apel API cu Verbose Logging
+          # Salvam output-ul intr-un fisier temporar pentru a-l putea citi chiar daca curl crapa
+          echo "Calling API at ${{ env.LOCATION }}..."
+          
+          HTTP_STATUS=$(curl -s -w "%{http_code}" -o response_raw.json \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "X-Goog-User-Project: ${{ env.PROJECT_ID }}" \
             -d "$PROMPT_DATA" \
-            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/generativeModels/gemini-1.5-flash-001:generateContent")
+            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash:generateContent")
 
-          # 3. Debugging robust
-          if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "FATAL: GCP API Error details:"
-            echo "$RESPONSE" | jq '.'
+          echo "HTTP Status: $HTTP_STATUS"
+
+          # 4. Verificare Status Code
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "FATAL: API Request failed with status $HTTP_STATUS"
+            cat response_raw.json | jq '.' || cat response_raw.json
             exit 1
           fi
 
-          # 4. Extract content
-          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
+          # 5. Extracție text
+          jq -r '.candidates[0].content.parts[0].text // empty' response_raw.json > briefing_output.md
 
-          # 5. Check if output is valid
-          if [ ! -s briefing_output.md ] || [ "$(cat briefing_output.md)" == "null" ]; then
-            echo "FATAL: Output is empty. API Full Response:"
-            echo "$RESPONSE"
+          # 6. Final Check
+          if [ ! -s briefing_output.md ]; then
+            echo "FATAL: briefing_output.md is empty after parsing."
+            cat response_raw.json
             exit 1
           fi
+          
+          echo "Success: Briefing generated."
 
       - name: Commit and Push
         shell: bash
