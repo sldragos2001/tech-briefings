@@ -1,0 +1,80 @@
+name: Daily Tech Briefing (GCP Native)
+
+on:
+  schedule:
+    - cron: '58 8 * * 1,4'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write # Necesar pentru OIDC
+
+jobs:
+  generate-briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      PROJECT_ID: "bank-prod-ai-1234"
+      LOCATION: "europe-west1"
+      WORKLOAD_IDENTITY_PROVIDER: "projects/832877221895/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+      SERVICE_ACCOUNT: "briefing-generator@project-f90c6781-8350-497f-bc7.iam.gserviceaccount.com"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Generate Briefing via Vertex AI
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          # Definim prompt-ul intr-o variabila pentru a evita escaping issues in curl
+          PROMPT_DATA=$(cat <<EOF
+          {
+            "contents": [{
+              "parts": [{
+                "text": "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)."
+              }]
+            }],
+            "generationConfig": {
+              "maxOutputTokens": 1024,
+              "temperature": 0.2
+            }
+          }
+          EOF
+          )
+
+          # Apel direct catre API-ul Vertex AI (fara Python SDK)
+          RESPONSE=$(curl -X POST \
+            -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$PROMPT_DATA" \
+            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash:streamGenerateContent?alt=sse")
+
+          # Parsare raspuns (Gemini stream format necesita curatare)
+          # Extragem doar campurile 'text' din stream-ul JSON
+          echo "$RESPONSE" | grep -oP '"text":\s*"\K[^"]+' | sed 's/\\n/\n/g' > briefing_output.md
+
+      - name: Commit and Push
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATE_PATH="briefings/$(date +%Y/%m)"
+          mkdir -p "$DATE_PATH"
+          mv briefing_output.md "$DATE_PATH/$(date +%F).md"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$DATE_PATH"
+          git commit -m "docs: daily briefing $(date +%F)" || exit 0
+          git push
