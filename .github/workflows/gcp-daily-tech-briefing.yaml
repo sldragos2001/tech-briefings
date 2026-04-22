@@ -16,7 +16,7 @@ jobs:
 
     env:
       PROJECT_ID: "project-f90c6781-8350-497f-bc7"
-      LOCATION: "europe-west1"
+      LOCATION: "europe-west4"
       WORKLOAD_IDENTITY_PROVIDER: "projects/832877221895/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
       SERVICE_ACCOUNT: "briefing-generator@project-f90c6781-8350-497f-bc7.iam.gserviceaccount.com"
 
@@ -38,48 +38,59 @@ jobs:
         run: |
           set -euo pipefail
           
+          # 1. Configurație: Olanda este "safe bet" pentru conturile din EU
           PROJECT_ID="project-f90c6781-8350-497f-bc7"
           PROJECT_NUMBER="832877221895"
-          LOCATION="us-central1"
-          MODEL_ID="gemini-2.0-flash-001"
+          LOCATION="europe-west4"
+          MODEL_ID="gemini-1.5-flash" # Cel mai stabil model din catalog
 
-          echo "🚀 Ultima sută de metri: Apelăm $MODEL_ID..."
+          echo "🌍 Încercăm în Olanda ($LOCATION) cu $MODEL_ID..."
 
-          # Payload corectat cu prefixele HARM_CATEGORY_
+          # 2. Payload minimal (Fără safety settings ca să evităm erori de tip 400)
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
               contents: [{ parts: [{ text: $prompt }] }],
               generationConfig: { 
                 maxOutputTokens: 2048, 
-                temperature: 0.1 
-              },
-              safetySettings: [
-                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
-              ]
+                temperature: 0.2 
+              }
             }')
 
-          # Apelul către v1beta1
+          # 3. Apelul API - Folosim v1 (producție) pentru stabilitate maximă
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "X-Goog-User-Project: $PROJECT_ID" \
             -d "$PROMPT_DATA" \
-            "https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
+            "https://$LOCATION-aiplatform.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
 
-          # Diagnostic final
+          # 4. Diagnostic & Parsare
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE API (Diagnostic):"
+            echo "❌ EROARE ÎNCĂ PREZENTĂ:"
             echo "$RESPONSE" | jq '.'
+            
+            # Plan B: Dacă dă tot 404, încercăm varianta "beta" automat
+            echo "🔄 Încercăm varianta v1beta1..."
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+              -H "Content-Type: application/json; charset=utf-8" \
+              -H "X-Goog-User-Project: $PROJECT_ID" \
+              -d "$PROMPT_DATA" \
+              "https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
+          fi
+
+          # 5. Salvare finală
+          TEXT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+          
+          if [ -z "$TEXT" ] || [ "$TEXT" == "null" ]; then
+            echo "❌ Eșec total în $LOCATION. Răspuns API:"
+            echo "$RESPONSE"
             exit 1
           fi
 
-          # Salvare succes
-          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
-          echo "✅ MISIUNE ÎNDEPLINITĂ! Briefing generat cu succes."
+          echo "$TEXT" > briefing_output.md
+          echo "✅ VICTORIE! Briefing generat în $LOCATION."
           
       - name: Commit and Push
         shell: bash
