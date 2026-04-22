@@ -16,7 +16,7 @@ jobs:
 
     env:
       PROJECT_ID: "project-f90c6781-8350-497f-bc7"
-      LOCATION: "europe-west4"
+      LOCATION: "us-central1"
       WORKLOAD_IDENTITY_PROVIDER: "projects/832877221895/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
       SERVICE_ACCOUNT: "briefing-generator@project-f90c6781-8350-497f-bc7.iam.gserviceaccount.com"
 
