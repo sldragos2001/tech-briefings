@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Construim payload-ul JSON (Unary call)
+          # Construim payload-ul
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -46,31 +46,31 @@ jobs:
               generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # 2. Apel API - Folosim versiunea stabila 002 in europe-west1
+          # Apel API folosind v1beta1 (mai stabil pentru discovery in 2026)
+          # Adaugam header-ul X-Goog-User-Project pentru a evita 404
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
+            -H "X-Goog-User-Project: ${{ env.PROJECT_ID }}" \
             -d "$PROMPT_DATA" \
-            "https://europe-west1-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/europe-west1/publishers/google/models/gemini-1.5-flash-002:generateContent")
+            "https://europe-west1-aiplatform.googleapis.com/v1beta1/projects/${{ env.PROJECT_ID }}/locations/europe-west1/publishers/google/models/gemini-1.5-flash:generateContent")
 
-          # 3. Verificăm erori API (Inclusiv 404/403/Quota)
+          # Verificare erori
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "FATAL: GCP API Error details:"
+            echo "FATAL: GCP API Error detected:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # 4. Extracție text (Path specific pentru Unary call)
+          # Extractie text
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
 
-          # 5. Sanity check: verificam daca avem continut valid
+          # Validare finala
           if [ ! -s briefing_output.md ] || [ "$(cat briefing_output.md)" == "null" ]; then
-            echo "FATAL: Output is empty or malformed JSON. Full Response:"
+            echo "FATAL: Empty output. API Response was:"
             echo "$RESPONSE"
             exit 1
           fi
-          
-          echo "Success: Briefing generated (Size: $(wc -c < briefing_output.md) bytes)"
 
       - name: Commit and Push
         shell: bash
