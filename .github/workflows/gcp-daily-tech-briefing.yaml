@@ -38,12 +38,12 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Parametrii confirmați de succesul ADC
+          # Folosim numărul de proiect extras din scriptul tău de succes
           PROJECT_NUMBER="832877221895"
           LOCATION="us-central1"
+          # Folosim alias-ul de bază care e garantat să existe
           MODEL_ID="gemini-1.5-flash"
 
-          # Payload JSON curat
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -51,17 +51,17 @@ jobs:
               generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # Apel API folosind calea pe care gcloud a verificat-o
+          # Folosim v1beta1 - e mult mai "prietenos" cu Service Account-urile în 2026
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "X-Goog-User-Project: ${{ env.PROJECT_ID }}" \
             -d "$PROMPT_DATA" \
-            "https://$LOCATION-aiplatform.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
+            "https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
 
-          # Verificare erori
+          # Verificăm erorile (Să vedem exact ce zice dacă moare)
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "FATAL: API Error:"
+            echo "--- EROARE DETECTATĂ ---"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
@@ -70,11 +70,12 @@ jobs:
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
 
           if [ ! -s briefing_output.md ]; then
-            echo "FATAL: Empty response from Gemini."
+            echo "EROARE: Gemini a întors un răspuns gol."
+            echo "Full Response: $RESPONSE"
             exit 1
           fi
           
-          echo "Success: Briefing generated!"
+          echo "Succes: Briefing-ul a fost generat!"
           
       - name: Commit and Push
         shell: bash
