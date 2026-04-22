@@ -16,7 +16,7 @@ jobs:
 
     env:
       PROJECT_ID: "project-f90c6781-8350-497f-bc7"
-      LOCATION: "europe-west1"
+      LOCATION: "europe-west3"
       WORKLOAD_IDENTITY_PROVIDER: "projects/832877221895/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
       SERVICE_ACCOUNT: "briefing-generator@project-f90c6781-8350-497f-bc7.iam.gserviceaccount.com"
 
@@ -58,7 +58,7 @@ jobs:
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$PROMPT_DATA" \
-            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash:streamGenerateContent")
+            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash-002:streamGenerateContent")
 
           # Verificăm dacă răspunsul conține erori de la Google API
           if echo "$RESPONSE" | grep -q '"error"'; then
