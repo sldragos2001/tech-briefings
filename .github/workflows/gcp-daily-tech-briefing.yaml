@@ -38,14 +38,11 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Verificăm dacă putem genera un token (Sanity Check)
-          TOKEN=$(gcloud auth print-access-token)
-          if [ -z "$TOKEN" ]; then
-            echo "FATAL: Could not generate GCP Access Token."
-            exit 1
-          fi
-
-          # 2. Construim payload-ul
+          # 1. Definire constante (Folosim PROJECT_NUMBER pentru stabilitate in REST)
+          export PROJECT_NUMBER="832877221895"
+          export MODEL_ID="gemini-1.5-flash-002" # Versiunea GA stabila
+          
+          # 2. Constructie Payload
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -53,38 +50,33 @@ jobs:
               generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # 3. Apel API cu Verbose Logging
-          # Salvam output-ul intr-un fisier temporar pentru a-l putea citi chiar daca curl crapa
-          echo "Calling API at ${{ env.LOCATION }}..."
-          
-          HTTP_STATUS=$(curl -s -w "%{http_code}" -o response_raw.json \
-            -X POST \
-            -H "Authorization: Bearer $TOKEN" \
+          # 3. Apel API folosind Project Number in URL
+          # Aceasta este metoda recomandata in banking pentru a evita erorile de rezolutie IAM
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "X-Goog-User-Project: ${{ env.PROJECT_ID }}" \
             -d "$PROMPT_DATA" \
-            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash:generateContent")
+            "https://europe-west1-aiplatform.googleapis.com/v1/projects/${PROJECT_NUMBER}/locations/europe-west1/publishers/google/models/${MODEL_ID}:generateContent")
 
-          echo "HTTP Status: $HTTP_STATUS"
-
-          # 4. Verificare Status Code
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "FATAL: API Request failed with status $HTTP_STATUS"
-            cat response_raw.json | jq '.' || cat response_raw.json
+          # 4. Validare erori
+          if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
+            echo "FATAL: GCP API Error details:"
+            echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # 5. Extracție text
-          jq -r '.candidates[0].content.parts[0].text // empty' response_raw.json > briefing_output.md
+          # 5. Extractie text
+          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
 
-          # 6. Final Check
-          if [ ! -s briefing_output.md ]; then
-            echo "FATAL: briefing_output.md is empty after parsing."
-            cat response_raw.json
+          # 6. Sanity check
+          if [ ! -s briefing_output.md ] || [ "$(cat briefing_output.md)" == "null" ]; then
+            echo "FATAL: Output is empty. API Response was:"
+            echo "$RESPONSE"
             exit 1
           fi
           
-          echo "Success: Briefing generated."
+          echo "Success: Briefing generated (Model: ${MODEL_ID})"
 
       - name: Commit and Push
         shell: bash
