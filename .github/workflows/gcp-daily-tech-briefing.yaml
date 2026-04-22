@@ -33,57 +33,59 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Generate Briefing (The 2026 Stable Version)
+      - name: Generate Briefing (The "Real-Time" Version)
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           set -euo pipefail
           
-          # Folosim alias-ul care "nu expiră" niciodată
-          MODEL_ID="gemini-flash-latest"
-          echo "🚀 Generăm briefing-ul folosind $MODEL_ID..."
+          # Definim data dinamic pentru header și context
+          CURRENT_DATE=$(date +'%Y-%m-%d')
+          DISPLAY_DATE=$(date +'%d %b %Y')
 
-          # Payload cu instrucțiuni stricte de stil
+          echo "🚀 Generăm briefing-ul pentru $DISPLAY_DATE..."
+
           PROMPT_DATA=$(jq -n \
-            --arg prompt "Act as a senior engineering analyst. Generate a 'Daily Engineering Briefing' for today, $(date +'%d %b %Y'). 
+            --arg date "$DISPLAY_DATE" \
+            --arg prompt "Act as a senior engineering analyst. Generate the 'Daily Engineering Briefing' for today, $date (Europe/Bucharest).
 
-            STRUCTURE RULES:
-            1. Title: 'Daily Tech Briefing — $(date +'%F')'
-            2. Categories: AI, Cloud Computing, DevOps. Generate 2 items for each.
-            3. Item Format:
-               - [Category] — [Catchy Headline]
-               - A detailed paragraph about a specific (simulated) recent development.
-               - 'Kink:' A witty, one-sentence punchline/insight.
-               - 'Why it matters:' 3 bullet points explaining the impact.
-            4. End with a 'TL;DR' section.
+            STRUCTURE:
+            1. Title: 'Daily Tech Briefing — $date'
+            2. Sections: AI, Cloud Computing, DevOps. (2 items per section).
+            3. Each item MUST follow this format:
+               - [Category] — [Headline]
+               - [A detailed paragraph about a specific technical update from the last 24-48 hours]
+               - 'Kink:' [A witty, cynical, or sharp one-sentence technical insight]
+               - 'Why it matters:' [3 bullet points on architectural or business impact]
+            4. Footer: A concise 'TL;DR' summary.
 
-            TONE: Professional, punchy, and highly technical. 
-            CONTEXT: It is the year 2026. Use 2026-specific tech (Agentic AI, Wasm, etc.) but treat them as current news, not future predictions.
-            LANGUAGE: English." \
+            TONE & CONTEXT:
+            Use the current 2026 tech stack (Agentic workflows, Wasm-native clouds, Sovereign infra) as the baseline. 
+            The tone should be 'OpenAI-esque': punchy, expert-level, and slightly opinionated. 
+            No fluff, no future predictions—just today's engineering reality." \
             '{
               contents: [{ parts: [{ text: $prompt }] }],
               generationConfig: { 
                 maxOutputTokens: 2500, 
-                temperature: 0.7 
+                temperature: 0.8 
               }
             }')
 
-          # Apel către endpoint-ul de v1beta (confirmat funcțional în Cloud Shell)
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "$PROMPT_DATA" \
-            "https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent?key=${GEMINI_API_KEY}")
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}")
 
-          # Verificăm dacă am primit text (Gemini 2.5/3.1 au aceeași structură JSON)
+          # Parsare și salvare
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE API DETECTATĂ:"
+            echo "❌ EROARE API:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
-          echo "✅ SUCCES! Briefing generat cu $MODEL_ID."
+          echo "✅ Briefing generat cu succes pentru $DISPLAY_DATE."
           
       - name: Commit and Push
         shell: bash
