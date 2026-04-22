@@ -33,20 +33,16 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Generate Briefing (The "Real-Time" Version)
+      - name: Generate Briefing (The "Full Breath" Version)
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           set -euo pipefail
-          
-          # 1. Definim variabilele corect
           DISPLAY_DATE=$(date +'%d %b %Y')
 
-          echo "🚀 Generăm briefing-ul pentru $DISPLAY_DATE..."
+          echo "🚀 Generăm briefing-ul complet pentru $DISPLAY_DATE..."
 
-          # 2. Construim prompt-ul
-          # Am înlocuit $date cu $DISPLAY_DATE (care e variabilă de Bash deja setată)
           PROMPT_DATA=$(jq -n \
             --arg display_date "$DISPLAY_DATE" \
             --arg prompt "Act as a senior engineering analyst. Generate the 'Daily Engineering Briefing' for today, $DISPLAY_DATE (Europe/Bucharest).
@@ -56,38 +52,40 @@ jobs:
             2. Sections: AI, Cloud Computing, DevOps. (2 items per section).
             3. Each item MUST follow this format:
                - [Category] — [Headline]
-               - [A detailed paragraph about a specific technical update from the last 24-48 hours]
-               - 'Kink:' [A witty, cynical, or sharp one-sentence technical insight]
-               - 'Why it matters:' [3 bullet points on architectural or business impact]
+               - [A detailed paragraph]
+               - 'Kink:' [One-sentence insight]
+               - 'Why it matters:' [3 bullet points]
             4. Footer: A concise 'TL;DR' summary.
 
-            TONE & CONTEXT:
-            Use the current 2026 tech stack (Agentic workflows, Wasm-native clouds, Sovereign infra) as the baseline. 
-            The tone should be 'OpenAI-esque': punchy, expert-level, and slightly opinionated. 
-            No fluff, no future predictions—just today's engineering reality." \
+            TONE: OpenAI-esque, punchy, expert.
+            STRICT RULE: Ensure the TL;DR is complete and the response ends with a proper concluding sentence. Total length: 500-700 words." \
             '{
               contents: [{ parts: [{ text: $prompt }] }],
               generationConfig: { 
-                maxOutputTokens: 2500, 
-                temperature: 0.8 
+                maxOutputTokens: 4096, 
+                temperature: 0.8,
+                topP: 0.95
               }
             }')
 
-          # 3. Apelul API
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "$PROMPT_DATA" \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}")
 
-          # 4. Parsare și verificare
+          # Verificăm dacă avem text și dacă nu a fost tăiat (finishReason)
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE API DETECTATĂ:"
+            echo "❌ EROARE API:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
+          # Salvăm rezultatul
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
-          echo "✅ Briefing generat cu succes pentru $DISPLAY_DATE."
+          
+          # Debug: vedem dacă s-a terminat ok
+          echo "✅ Briefing generat. Ultima linie este:"
+          tail -n 1 briefing_output.md
           
       - name: Commit and Push
         shell: bash
