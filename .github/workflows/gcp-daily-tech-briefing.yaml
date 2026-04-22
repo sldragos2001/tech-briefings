@@ -40,18 +40,19 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Definim data dinamic pentru header și context
-          CURRENT_DATE=$(date +'%Y-%m-%d')
+          # 1. Definim variabilele corect
           DISPLAY_DATE=$(date +'%d %b %Y')
 
           echo "🚀 Generăm briefing-ul pentru $DISPLAY_DATE..."
 
+          # 2. Construim prompt-ul
+          # Am înlocuit $date cu $DISPLAY_DATE (care e variabilă de Bash deja setată)
           PROMPT_DATA=$(jq -n \
-            --arg date "$DISPLAY_DATE" \
-            --arg prompt "Act as a senior engineering analyst. Generate the 'Daily Engineering Briefing' for today, $date (Europe/Bucharest).
+            --arg display_date "$DISPLAY_DATE" \
+            --arg prompt "Act as a senior engineering analyst. Generate the 'Daily Engineering Briefing' for today, $DISPLAY_DATE (Europe/Bucharest).
 
             STRUCTURE:
-            1. Title: 'Daily Tech Briefing — $date'
+            1. Title: 'Daily Tech Briefing — $DISPLAY_DATE'
             2. Sections: AI, Cloud Computing, DevOps. (2 items per section).
             3. Each item MUST follow this format:
                - [Category] — [Headline]
@@ -72,14 +73,15 @@ jobs:
               }
             }')
 
+          # 3. Apelul API
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "$PROMPT_DATA" \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}")
 
-          # Parsare și salvare
+          # 4. Parsare și verificare
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE API:"
+            echo "❌ EROARE API DETECTATĂ:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
