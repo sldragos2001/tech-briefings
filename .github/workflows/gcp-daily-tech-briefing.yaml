@@ -33,71 +33,38 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Generate Briefing via Vertex AI
+      - name: Generate Briefing (The Winner Version)
         shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           set -euo pipefail
           
-          # 1. Configurație 2026: us-central1 este "centrul universului" Gemini
-          PROJECT_ID="project-f90c6781-8350-497f-bc7"
-          PROJECT_NUMBER="832877221895"
-          LOCATION="us-central1"
-          # Folosim ID-ul simplu; Agent Platform se ocupă de restul
-          MODEL_ID="gemini-1.5-flash"
+          echo "🚀 Generăm briefing-ul folosind Google AI API..."
 
-          echo "🚀 Forțăm generarea în $LOCATION folosind GenerativeModels API..."
-
-          # 2. Payload minimal
+          # Payload simplu
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
               contents: [{ parts: [{ text: $prompt }] }],
-              generationConfig: { 
-                maxOutputTokens: 2048, 
-                temperature: 0.2 
-              }
+              generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # 3. SCHIMBARE CRITICĂ: Endpoint-ul modern (fără /publishers/google/models/)
-          # Această rută este mult mai stabilă pentru proiectele noi
-          API_ENDPOINT="https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/generativeModels/$MODEL_ID:generateContent"
-
+          # Apel direct către endpoint-ul global (fără regiuni, fără 404)
           RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            -H "X-Goog-User-Project: $PROJECT_ID" \
+            -H "Content-Type: application/json" \
             -d "$PROMPT_DATA" \
-            "$API_ENDPOINT")
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}")
 
-          # 4. Diagnostic & Erroare
+          # Verificăm dacă avem text
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE API DETECTATĂ:"
+            echo "❌ EROARE API:"
             echo "$RESPONSE" | jq '.'
-            
-            # Verificăm dacă e o problemă de regiune și încercăm Paris ca ultimă soluție
-            if echo "$RESPONSE" | grep -q "404"; then
-              echo "🔄 Încercăm ultima redută: europe-west9 (Paris)..."
-              LOCATION_BACKUP="europe-west9"
-              API_ENDPOINT_BACKUP="https://$LOCATION_BACKUP-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION_BACKUP/generativeModels/$MODEL_ID:generateContent"
-              RESPONSE=$(curl -s -X POST \
-                -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-                -H "Content-Type: application/json; charset=utf-8" \
-                -H "X-Goog-User-Project: $PROJECT_ID" \
-                -d "$PROMPT_DATA" \
-                "$API_ENDPOINT_BACKUP")
-            fi
-          fi
-
-          # 5. Salvare Finală
-          TEXT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
-          
-          if [ -z "$TEXT" ] || [ "$TEXT" == "null" ]; then
-            echo "❌ Eșec critic. Gemini nu a putut fi contactat pe nicio rută."
             exit 1
           fi
 
-          echo "$TEXT" > briefing_output.md
-          echo "✅ VICTORIE! Briefing generat."
+          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
+          echo "✅ SUCCES! Briefing creat."
           
       - name: Commit and Push
         shell: bash
