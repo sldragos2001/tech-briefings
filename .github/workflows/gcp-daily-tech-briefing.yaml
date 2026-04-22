@@ -33,38 +33,42 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Generate Briefing (The Winner Version)
+      - name: Generate Briefing (The 2026 Stable Version)
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           set -euo pipefail
           
-          echo "🚀 Generăm briefing-ul folosind Google AI API..."
+          # Folosim alias-ul care "nu expiră" niciodată
+          MODEL_ID="gemini-flash-latest"
+          echo "🚀 Generăm briefing-ul folosind $MODEL_ID..."
 
-          # Payload simplu
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
               contents: [{ parts: [{ text: $prompt }] }],
-              generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
+              generationConfig: { 
+                maxOutputTokens: 4096, 
+                temperature: 0.1 
+              }
             }')
 
-          # Apel direct către endpoint-ul global (fără regiuni, fără 404)
+          # Apel către endpoint-ul de v1beta (confirmat funcțional în Cloud Shell)
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "$PROMPT_DATA" \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}")
+            "https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent?key=${GEMINI_API_KEY}")
 
-          # Verificăm dacă avem text
+          # Verificăm dacă am primit text (Gemini 2.5/3.1 au aceeași structură JSON)
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE API:"
+            echo "❌ EROARE API DETECTATĂ:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
-          echo "✅ SUCCES! Briefing creat."
+          echo "✅ SUCCES! Briefing generat cu $MODEL_ID."
           
       - name: Commit and Push
         shell: bash
