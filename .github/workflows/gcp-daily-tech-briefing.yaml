@@ -38,18 +38,14 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Datele tale oficiale din 2026
           PROJECT_ID="project-f90c6781-8350-497f-bc7"
           PROJECT_NUMBER="832877221895"
-          # Rămânem pe us-central1 pentru că acolo s-a născut Gemini 2.0
           LOCATION="us-central1"
-          # ACESTA este ID-ul din screenshot-ul tău:
           MODEL_ID="gemini-2.0-flash-001"
 
-          echo "🚀 Generăm briefing-ul cu $MODEL_ID în $LOCATION..."
+          echo "🚀 Ultima sută de metri: Apelăm $MODEL_ID..."
 
-          # 2. Payload pentru Gemini 2.0
-          # Am adăugat safetySettings la BLOCK_NONE ca să nu avem surprize
+          # Payload corectat cu prefixele HARM_CATEGORY_
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -59,14 +55,14 @@ jobs:
                 temperature: 0.1 
               },
               safetySettings: [
-                { category: "HATE_SPEECH", threshold: "BLOCK_NONE" },
-                { category: "HARASSMENT", threshold: "BLOCK_NONE" },
-                { category: "DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-                { category: "SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
               ]
             }')
 
-          # 3. Apelul API către v1beta1 (singurul unde stă 2.0 Flash-ul tău)
+          # Apelul către v1beta1
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -74,20 +70,16 @@ jobs:
             -d "$PROMPT_DATA" \
             "https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
 
-          # 4. Debugging inteligent
+          # Diagnostic final
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE CRITICĂ API:"
-            # Dacă e tot 404, înseamnă că Model ID-ul are alt format
-            if echo "$RESPONSE" | grep -q "404"; then
-                echo "Modelul $MODEL_ID tot nu e găsit. Încercăm varianta scurtă..."
-            fi
+            echo "❌ EROARE API (Diagnostic):"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # 5. Salvare briefing
+          # Salvare succes
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
-          echo "✅ SUCCES! Briefing creat: $(wc -l < briefing_output.md) linii."
+          echo "✅ MISIUNE ÎNDEPLINITĂ! Briefing generat cu succes."
           
       - name: Commit and Push
         shell: bash
