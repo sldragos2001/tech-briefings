@@ -38,7 +38,6 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Definim prompt-ul intr-o variabila pentru a evita escaping issues in curl
           PROMPT_DATA=$(cat <<EOF
           {
             "contents": [{
@@ -54,16 +53,29 @@ jobs:
           EOF
           )
 
-          # Apel direct catre API-ul Vertex AI (fara Python SDK)
-          RESPONSE=$(curl -X POST \
+          # Executăm apelul și salvăm răspunsul brut pentru debug în caz de eșec
+          RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$PROMPT_DATA" \
-            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash:streamGenerateContent?alt=sse")
+            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash:streamGenerateContent")
 
-          # Parsare raspuns (Gemini stream format necesita curatare)
-          # Extragem doar campurile 'text' din stream-ul JSON
-          echo "$RESPONSE" | grep -oP '"text":\s*"\K[^"]+' | sed 's/\\n/\n/g' > briefing_output.md
+          # Verificăm dacă răspunsul conține erori de la Google API
+          if echo "$RESPONSE" | grep -q '"error"'; then
+            echo "GCP API Error detected:"
+            echo "$RESPONSE" | jq '.'
+            exit 1
+          fi
+
+          # Parsare robustă: extragem textul și curățăm JSON escaping
+          echo "$RESPONSE" | jq -r '.[].candidates[0].content.parts[0].text // empty' > briefing_output.md
+
+          # Verificăm dacă fișierul este gol
+          if [ ! -s briefing_output.md ]; then
+            echo "Error: Generated briefing is empty. API Response was:"
+            echo "$RESPONSE"
+            exit 1
+          fi
 
       - name: Commit and Push
         shell: bash
