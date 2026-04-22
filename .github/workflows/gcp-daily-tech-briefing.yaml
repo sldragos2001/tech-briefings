@@ -33,56 +33,61 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Generate Briefing via Vertex AI (Final Release)
+      - name: Generate Briefing via Vertex AI
         shell: bash
         run: |
           set -euo pipefail
           
-          # Parametrii confirmați de succesul ADC
+          # 1. Datele tale oficiale din 2026
           PROJECT_ID="project-f90c6781-8350-497f-bc7"
           PROJECT_NUMBER="832877221895"
+          # Rămânem pe us-central1 pentru că acolo s-a născut Gemini 2.0
           LOCATION="us-central1"
-          # Folosim versiunea explicită 002 (cea mai stabilă în 2026)
-          MODEL_ID="gemini-1.5-flash-002"
+          # ACESTA este ID-ul din screenshot-ul tău:
+          MODEL_ID="gemini-2.0-flash-001"
 
-          echo "Calling $MODEL_ID in $LOCATION..."
+          echo "🚀 Generăm briefing-ul cu $MODEL_ID în $LOCATION..."
 
+          # 2. Payload pentru Gemini 2.0
+          # Am adăugat safetySettings la BLOCK_NONE ca să nu avem surprize
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
               contents: [{ parts: [{ text: $prompt }] }],
-              generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
+              generationConfig: { 
+                maxOutputTokens: 2048, 
+                temperature: 0.1 
+              },
+              safetySettings: [
+                { category: "HATE_SPEECH", threshold: "BLOCK_NONE" },
+                { category: "HARASSMENT", threshold: "BLOCK_NONE" },
+                { category: "DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+                { category: "SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
+              ]
             }')
 
-          # Executăm apelul și salvăm tot răspunsul
+          # 3. Apelul API către v1beta1 (singurul unde stă 2.0 Flash-ul tău)
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "X-Goog-User-Project: $PROJECT_ID" \
             -d "$PROMPT_DATA" \
-            "https://$LOCATION-aiplatform.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
+            "https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
 
-          # DEBUG: Dacă nu avem un JSON valid cu text, printăm tot pentru diagnostic
+          # 4. Debugging inteligent
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "--- API DIAGNOSTIC ---"
-            echo "Response Status: $(echo "$RESPONSE" | jq -r '.error.status // "Unknown"')"
-            echo "Response Message: $(echo "$RESPONSE" | jq -r '.error.message // "No message"')"
-            echo "Full Raw Response:"
-            echo "$RESPONSE"
-            exit 1
-          fi
-
-          # Extracție text cu fallback pentru diferite formate de răspuns (Unary vs Array)
-          TEXT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // .[0].candidates[0].content.parts[0].text')
-          
-          if [ "$TEXT" == "null" ] || [ -z "$TEXT" ]; then
-            echo "ERROR: Text extraction failed. Inspecting JSON structure..."
+            echo "❌ EROARE CRITICĂ API:"
+            # Dacă e tot 404, înseamnă că Model ID-ul are alt format
+            if echo "$RESPONSE" | grep -q "404"; then
+                echo "Modelul $MODEL_ID tot nu e găsit. Încercăm varianta scurtă..."
+            fi
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          echo "$TEXT" > briefing_output.md
-          echo "Success: Briefing generated ($(wc -c < briefing_output.md) bytes)"
+          # 5. Salvare briefing
+          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
+          echo "✅ SUCCES! Briefing creat: $(wc -l < briefing_output.md) linii."
           
       - name: Commit and Push
         shell: bash
