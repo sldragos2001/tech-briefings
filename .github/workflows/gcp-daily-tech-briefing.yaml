@@ -38,15 +38,16 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Configurație: Olanda este "safe bet" pentru conturile din EU
+          # 1. Configurație 2026: us-central1 este "centrul universului" Gemini
           PROJECT_ID="project-f90c6781-8350-497f-bc7"
           PROJECT_NUMBER="832877221895"
-          LOCATION="europe-west4"
-          MODEL_ID="gemini-1.5-flash" # Cel mai stabil model din catalog
+          LOCATION="us-central1"
+          # Folosim ID-ul simplu; Agent Platform se ocupă de restul
+          MODEL_ID="gemini-1.5-flash"
 
-          echo "🌍 Încercăm în Olanda ($LOCATION) cu $MODEL_ID..."
+          echo "🚀 Forțăm generarea în $LOCATION folosind GenerativeModels API..."
 
-          # 2. Payload minimal (Fără safety settings ca să evităm erori de tip 400)
+          # 2. Payload minimal
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -57,40 +58,46 @@ jobs:
               }
             }')
 
-          # 3. Apelul API - Folosim v1 (producție) pentru stabilitate maximă
+          # 3. SCHIMBARE CRITICĂ: Endpoint-ul modern (fără /publishers/google/models/)
+          # Această rută este mult mai stabilă pentru proiectele noi
+          API_ENDPOINT="https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/generativeModels/$MODEL_ID:generateContent"
+
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "X-Goog-User-Project: $PROJECT_ID" \
             -d "$PROMPT_DATA" \
-            "https://$LOCATION-aiplatform.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
+            "$API_ENDPOINT")
 
-          # 4. Diagnostic & Parsare
+          # 4. Diagnostic & Erroare
           if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE ÎNCĂ PREZENTĂ:"
+            echo "❌ EROARE API DETECTATĂ:"
             echo "$RESPONSE" | jq '.'
             
-            # Plan B: Dacă dă tot 404, încercăm varianta "beta" automat
-            echo "🔄 Încercăm varianta v1beta1..."
-            RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-              -H "Content-Type: application/json; charset=utf-8" \
-              -H "X-Goog-User-Project: $PROJECT_ID" \
-              -d "$PROMPT_DATA" \
-              "https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
+            # Verificăm dacă e o problemă de regiune și încercăm Paris ca ultimă soluție
+            if echo "$RESPONSE" | grep -q "404"; then
+              echo "🔄 Încercăm ultima redută: europe-west9 (Paris)..."
+              LOCATION_BACKUP="europe-west9"
+              API_ENDPOINT_BACKUP="https://$LOCATION_BACKUP-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION_BACKUP/generativeModels/$MODEL_ID:generateContent"
+              RESPONSE=$(curl -s -X POST \
+                -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+                -H "Content-Type: application/json; charset=utf-8" \
+                -H "X-Goog-User-Project: $PROJECT_ID" \
+                -d "$PROMPT_DATA" \
+                "$API_ENDPOINT_BACKUP")
+            fi
           fi
 
-          # 5. Salvare finală
+          # 5. Salvare Finală
           TEXT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
           
           if [ -z "$TEXT" ] || [ "$TEXT" == "null" ]; then
-            echo "❌ Eșec total în $LOCATION. Răspuns API:"
-            echo "$RESPONSE"
+            echo "❌ Eșec critic. Gemini nu a putut fi contactat pe nicio rută."
             exit 1
           fi
 
           echo "$TEXT" > briefing_output.md
-          echo "✅ VICTORIE! Briefing generat în $LOCATION."
+          echo "✅ VICTORIE! Briefing generat."
           
       - name: Commit and Push
         shell: bash
