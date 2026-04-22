@@ -33,16 +33,19 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Generate Briefing via Vertex AI
+      - name: Generate Briefing via Vertex AI (Final Release)
         shell: bash
         run: |
           set -euo pipefail
           
-          # Folosim numărul de proiect extras din scriptul tău de succes
+          # Parametrii confirmați de succesul ADC
+          PROJECT_ID="project-f90c6781-8350-497f-bc7"
           PROJECT_NUMBER="832877221895"
           LOCATION="us-central1"
-          # Folosim alias-ul de bază care e garantat să existe
-          MODEL_ID="gemini-1.5-flash"
+          # Folosim versiunea explicită 002 (cea mai stabilă în 2026)
+          MODEL_ID="gemini-1.5-flash-002"
+
+          echo "Calling $MODEL_ID in $LOCATION..."
 
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
@@ -51,31 +54,35 @@ jobs:
               generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # Folosim v1beta1 - e mult mai "prietenos" cu Service Account-urile în 2026
+          # Executăm apelul și salvăm tot răspunsul
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
-            -H "X-Goog-User-Project: ${{ env.PROJECT_ID }}" \
+            -H "X-Goog-User-Project: $PROJECT_ID" \
             -d "$PROMPT_DATA" \
-            "https://$LOCATION-aiplatform.googleapis.com/v1beta1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
+            "https://$LOCATION-aiplatform.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
 
-          # Verificăm erorile (Să vedem exact ce zice dacă moare)
-          if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "--- EROARE DETECTATĂ ---"
+          # DEBUG: Dacă nu avem un JSON valid cu text, printăm tot pentru diagnostic
+          if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
+            echo "--- API DIAGNOSTIC ---"
+            echo "Response Status: $(echo "$RESPONSE" | jq -r '.error.status // "Unknown"')"
+            echo "Response Message: $(echo "$RESPONSE" | jq -r '.error.message // "No message"')"
+            echo "Full Raw Response:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          # Extracție text cu fallback pentru diferite formate de răspuns (Unary vs Array)
+          TEXT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // .[0].candidates[0].content.parts[0].text')
+          
+          if [ "$TEXT" == "null" ] || [ -z "$TEXT" ]; then
+            echo "ERROR: Text extraction failed. Inspecting JSON structure..."
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # Extracție text
-          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
-
-          if [ ! -s briefing_output.md ]; then
-            echo "EROARE: Gemini a întors un răspuns gol."
-            echo "Full Response: $RESPONSE"
-            exit 1
-          fi
-          
-          echo "Succes: Briefing-ul a fost generat!"
+          echo "$TEXT" > briefing_output.md
+          echo "Success: Briefing generated ($(wc -c < briefing_output.md) bytes)"
           
       - name: Commit and Push
         shell: bash
