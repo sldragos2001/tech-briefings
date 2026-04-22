@@ -38,37 +38,30 @@ jobs:
         run: |
           set -euo pipefail
           
-          PROMPT_DATA=$(cat <<EOF
-          {
-            "contents": [{
-              "parts": [{
-                "text": "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)."
-              }]
-            }],
-            "generationConfig": {
-              "maxOutputTokens": 1024,
-              "temperature": 0.2
-            }
-          }
-          EOF
-          )
+          # Construim JSON-ul folosind jq pentru a evita erori de citare (escaping)
+          PROMPT_DATA=$(jq -n \
+            --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
+            '{
+              contents: [{ parts: [{ text: $prompt }] }],
+              generationConfig: { maxOutputTokens: 1024, temperature: 0.2 }
+            }')
 
-          # Executăm apelul și salvăm răspunsul brut pentru debug în caz de eșec
+          # Apelul API - ATENȚIE la închiderea parantezei la final
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$PROMPT_DATA" \
-            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash:streamGenerateContent"
+            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-1.5-flash:generateContent")
 
-          # Verificăm dacă răspunsul conține erori de la Google API
-          if echo "$RESPONSE" | grep -q '"error"'; then
+          # Verificăm dacă răspunsul conține erori
+          if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
             echo "GCP API Error detected:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # Parsare robustă: extragem textul și curățăm JSON escaping
-          echo "$RESPONSE" | jq -r '.[].candidates[0].content.parts[0].text // empty' > briefing_output.md
+          # Extragem textul (formatul Unary este mai stabil pentru CI/CD)
+          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
 
           # Verificăm dacă fișierul este gol
           if [ ! -s briefing_output.md ]; then
