@@ -44,13 +44,28 @@ jobs:
           MODEL_ID="gemini-flash-latest"
           echo "🚀 Generăm briefing-ul folosind $MODEL_ID..."
 
+          # Payload cu instrucțiuni stricte de stil
           PROMPT_DATA=$(jq -n \
-            --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
+            --arg prompt "Act as a senior engineering analyst. Generate a 'Daily Engineering Briefing' for today, $(date +'%d %b %Y'). 
+
+            STRUCTURE RULES:
+            1. Title: 'Daily Tech Briefing — $(date +'%F')'
+            2. Categories: AI, Cloud Computing, DevOps. Generate 2 items for each.
+            3. Item Format:
+               - [Category] — [Catchy Headline]
+               - A detailed paragraph about a specific (simulated) recent development.
+               - 'Kink:' A witty, one-sentence punchline/insight.
+               - 'Why it matters:' 3 bullet points explaining the impact.
+            4. End with a 'TL;DR' section.
+
+            TONE: Professional, punchy, and highly technical. 
+            CONTEXT: It is the year 2026. Use 2026-specific tech (Agentic AI, Wasm, etc.) but treat them as current news, not future predictions.
+            LANGUAGE: English." \
             '{
               contents: [{ parts: [{ text: $prompt }] }],
               generationConfig: { 
-                maxOutputTokens: 4096, 
-                temperature: 0.1 
+                maxOutputTokens: 2500, 
+                temperature: 0.7 
               }
             }')
 
