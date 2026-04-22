@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
 
     env:
-      PROJECT_ID: "bank-prod-ai-1234"
+      PROJECT_ID: "project-f90c6781-8350-497f-bc7"
       LOCATION: "europe-west1"
       WORKLOAD_IDENTITY_PROVIDER: "projects/832877221895/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
       SERVICE_ACCOUNT: "briefing-generator@project-f90c6781-8350-497f-bc7.iam.gserviceaccount.com"
