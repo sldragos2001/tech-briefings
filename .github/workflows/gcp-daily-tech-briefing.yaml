@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Construim payload-ul JSON cu noul model 3.1
+          # 1. Pregătire Prompt (Gemini 3.1 are limite mai mari de tokens)
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -46,29 +46,32 @@ jobs:
               generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # Apel API Unary (generateContent) - Corectat sintaxa parantezelor
+          # 2. Apel API Unary (Folosim Gemini 3.1 Flash)
+          # Am verificat: endpoint-ul v1 este acum stabil pentru 3.1 în Frankfurt
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$PROMPT_DATA" \
             "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-3.1-flash:generateContent")
 
-          # Verificăm erori
+          # 3. Verificare erori de sistem sau de cotă
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
             echo "FATAL: GCP API Error detected:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # Extragem textul
+          # 4. Extracție text (Path-ul standard pentru Gemini 3.x)
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
 
-          # Validare finală
+          # 5. Verificare integritate fișier
           if [ ! -s briefing_output.md ] || [ "$(cat briefing_output.md)" == "null" ]; then
-            echo "FATAL: Output is empty. Full Response:"
+            echo "FATAL: Briefing content is null or empty. API Response:"
             echo "$RESPONSE"
             exit 1
           fi
+          
+          echo "Success: Tech Briefing generated successfully."
 
       - name: Commit and Push
         shell: bash
