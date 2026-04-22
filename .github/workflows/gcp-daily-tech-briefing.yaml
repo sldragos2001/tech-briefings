@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Construim payload-ul
+          # 1. Payload construct
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -46,28 +46,28 @@ jobs:
               generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # Apel API folosind v1beta1 (mai stabil pentru discovery in 2026)
-          # Adaugam header-ul X-Goog-User-Project pentru a evita 404
+          # 2. Noul Endpoint format (Agent Platform 2026)
+          # Folosim generativeModels in loc de publishers/google/models
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "X-Goog-User-Project: ${{ env.PROJECT_ID }}" \
             -d "$PROMPT_DATA" \
-            "https://europe-west1-aiplatform.googleapis.com/v1beta1/projects/${{ env.PROJECT_ID }}/locations/europe-west1/publishers/google/models/gemini-1.5-flash:generateContent")
+            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/generativeModels/gemini-1.5-flash-001:generateContent")
 
-          # Verificare erori
+          # 3. Debugging robust
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "FATAL: GCP API Error detected:"
+            echo "FATAL: GCP API Error details:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # Extractie text
+          # 4. Extract content
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
 
-          # Validare finala
+          # 5. Check if output is valid
           if [ ! -s briefing_output.md ] || [ "$(cat briefing_output.md)" == "null" ]; then
-            echo "FATAL: Empty output. API Response was:"
+            echo "FATAL: Output is empty. API Full Response:"
             echo "$RESPONSE"
             exit 1
           fi
