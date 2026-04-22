@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Pregătire Prompt (Gemini 3.1 are limite mai mari de tokens)
+          # Payload curat
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
@@ -46,32 +46,29 @@ jobs:
               generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
             }')
 
-          # 2. Apel API Unary (Folosim Gemini 3.1 Flash)
-          # Am verificat: endpoint-ul v1 este acum stabil pentru 3.1 în Frankfurt
+          # Apel direct către modelul versionat 002 (evită problemele de alias 404)
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$PROMPT_DATA" \
-            "https://${{ env.LOCATION }}-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.LOCATION }}/publishers/google/models/gemini-3.1-flash:generateContent")
+            "https://europe-west1-aiplatform.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/europe-west1/publishers/google/models/gemini-1.5-flash-002:generateContent")
 
-          # 3. Verificare erori de sistem sau de cotă
+          # Log răspuns în caz de eroare (pentru debug profund)
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "FATAL: GCP API Error detected:"
+            echo "FATAL: GCP API Error details:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # 4. Extracție text (Path-ul standard pentru Gemini 3.x)
+          # Extracție text
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
 
-          # 5. Verificare integritate fișier
+          # Verificare finală
           if [ ! -s briefing_output.md ] || [ "$(cat briefing_output.md)" == "null" ]; then
-            echo "FATAL: Briefing content is null or empty. API Response:"
+            echo "FATAL: Output is empty. Full Response for debug:"
             echo "$RESPONSE"
             exit 1
           fi
-          
-          echo "Success: Tech Briefing generated successfully."
 
       - name: Commit and Push
         shell: bash
