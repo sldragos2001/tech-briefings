@@ -38,45 +38,51 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Definire constante (Folosim PROJECT_NUMBER pentru stabilitate in REST)
-          export PROJECT_NUMBER="832877221895"
-          export MODEL_ID="gemini-1.5-flash-002" # Versiunea GA stabila
+          # 1. Definire variabile (Gemini 2.0 Flash este modelul identificat în screenshot)
+          PROJECT_NUMBER="832877221895"
+          MODEL_ID="gemini-2.0-flash-001"
+          LOCATION="europe-west1"
           
-          # 2. Constructie Payload
+          echo "Using model: $MODEL_ID in $LOCATION"
+
+          # 2. Construim payload-ul JSON
           PROMPT_DATA=$(jq -n \
             --arg prompt "Act as a senior engineering analyst. Generate a tech briefing for AI, Cloud Computing, and DevOps. 2 items each. Language: English. Format: Markdown. Target 450-650 words. Include TL;DR. Today is $(date +%F)." \
             '{
               contents: [{ parts: [{ text: $prompt }] }],
-              generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
+              generationConfig: { 
+                maxOutputTokens: 2048, 
+                temperature: 0.2 
+              }
             }')
 
-          # 3. Apel API folosind Project Number in URL
-          # Aceasta este metoda recomandata in banking pentru a evita erorile de rezolutie IAM
+          # 3. Apel API - Folosim calea oficială pentru Gemini 2.0
+          # Am inclus header-ul X-Goog-User-Project pentru a asigura accesul la cote
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $(gcloud auth print-access-token)" \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "X-Goog-User-Project: ${{ env.PROJECT_ID }}" \
             -d "$PROMPT_DATA" \
-            "https://europe-west1-aiplatform.googleapis.com/v1/projects/${PROJECT_NUMBER}/locations/europe-west1/publishers/google/models/${MODEL_ID}:generateContent")
+            "https://$LOCATION-aiplatform.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/$LOCATION/publishers/google/models/$MODEL_ID:generateContent")
 
-          # 4. Validare erori
+          # 4. Verificare erori API
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "FATAL: GCP API Error details:"
+            echo "FATAL: GCP API Error detected:"
             echo "$RESPONSE" | jq '.'
             exit 1
           fi
 
-          # 5. Extractie text
+          # 5. Extracție text din formatul Unary (Gemini 2.0 returnează direct obiectul în v1)
           echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' > briefing_output.md
 
-          # 6. Sanity check
+          # 6. Sanity check: verificăm dacă fișierul are conținut
           if [ ! -s briefing_output.md ] || [ "$(cat briefing_output.md)" == "null" ]; then
-            echo "FATAL: Output is empty. API Response was:"
+            echo "FATAL: Output is empty. API Full Response for debug:"
             echo "$RESPONSE"
             exit 1
           fi
           
-          echo "Success: Briefing generated (Model: ${MODEL_ID})"
+          echo "Success: Briefing generated (Size: $(wc -c < briefing_output.md) bytes)"
 
       - name: Commit and Push
         shell: bash
