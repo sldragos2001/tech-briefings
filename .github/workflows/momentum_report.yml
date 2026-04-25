@@ -1,0 +1,50 @@
+name: ETF Momentum Monthly Report
+
+on:
+  schedule:
+    # Ruleaza in zilele 28-31 la 08:00 UTC (11:00 EEST / 10:00 EET)
+    - cron: '0 8 28-31 * *'
+  workflow_dispatch: 
+
+jobs:
+  run-momentum-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Last Day of Month
+        id: check_date
+        run: |
+          # Daca maine nu e ziua 01, oprim executia cu succes
+          if [ "$(date -d tomorrow +%d)" != "01" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Not the last day of the month. Skipping run."
+            echo "run_job=false" >> $GITHUB_ENV
+          else
+            echo "run_job=true" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout repository
+        if: env.run_job == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: env.run_job == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        if: env.run_job == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas
+
+      - name: Execute Momentum Report
+        if: env.run_job == 'true'
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: |
+          # set -e asigura craparea pipeline-ului la prima eroare in runtime
+          set -e
+          python3 email_momentum_calculator.py
