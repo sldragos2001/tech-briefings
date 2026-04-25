@@ -2,9 +2,8 @@ name: ETF Momentum Monthly Report
 
 on:
   schedule:
-    # Ruleaza in zilele 28-31 la 08:00 UTC (11:00 EEST / 10:00 EET)
     - cron: '0 8 28-31 * *'
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   run-momentum-report:
@@ -13,7 +12,6 @@ jobs:
       - name: Validate Last Day of Month
         id: check_date
         run: |
-          # Daca maine nu e ziua 01, oprim executia cu succes
           if [ "$(date -d tomorrow +%d)" != "01" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             echo "Not the last day of the month. Skipping run."
             echo "run_job=false" >> $GITHUB_ENV
@@ -45,6 +43,6 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: |
-          # set -e asigura craparea pipeline-ului la prima eroare in runtime
           set -e
-          python3 email_momentum_calculator.py
+          # Calea actualizata catre directorul scripts/
+          python3 scripts/email_momentum_calculator.py
