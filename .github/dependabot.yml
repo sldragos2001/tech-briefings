@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Bucharest"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    assignees:
+      - "sldragos2001" # Pune userul tau real de GitHub aici
