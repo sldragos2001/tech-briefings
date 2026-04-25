@@ -32,13 +32,9 @@ class EmailMomentumCalculator:
     def calculate_momentum(self, ticker):
         """Calculate momentum for a given ticker"""
         try:
-            # Creeaza o sesiune custom ca sa nu pari bot pentru WAF-ul Yahoo
-            session = requests.Session()
-            session.headers.update({
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            })
+            # Lasam yfinance sa foloseasca sesiunea lui nativa (curl_cffi)
+            stock = yf.Ticker(ticker)
             
-            stock = yf.Ticker(ticker, session=session)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=400)
             hist_data = stock.history(start=start_date.strftime('%Y-%m-%d'), 
