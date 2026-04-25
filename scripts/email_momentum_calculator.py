@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import yfinance as yf
 from datetime import datetime, timedelta
 import pandas as pd
@@ -5,12 +6,23 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
+import requests
+import os
+import sys
 
 class EmailMomentumCalculator:
     def __init__(self):
         self.offensive_etfs = ["SXR8.DE", "EXUS.DE", "EIMI.L", "QDVE.DE"]
         self.defensive_etfs = ["VUCE.DE", "IB01.L", "PPFB.DE"]
-        self.email_to = "sldragos2001@gmail.com"
+        
+        # Preluare stricta din variabile de mediu (Fail Fast)
+        self.smtp_user = os.environ.get('SMTP_USER')
+        self.smtp_pass = os.environ.get('SMTP_PASS')
+        self.email_to = os.environ.get('EMAIL_TO')
+        
+        if not all([self.smtp_user, self.smtp_pass, self.email_to]):
+            print("CRITICAL: Credențialele SMTP sau destinația lipsesc din variabilele de mediu!", file=sys.stderr)
+            sys.exit(1)
         
     def get_price_at_date(self, data, target_date):
         """Get price at specific date"""
@@ -20,13 +32,20 @@ class EmailMomentumCalculator:
     def calculate_momentum(self, ticker):
         """Calculate momentum for a given ticker"""
         try:
-            stock = yf.Ticker(ticker)
+            # Creeaza o sesiune custom ca sa nu pari bot pentru WAF-ul Yahoo
+            session = requests.Session()
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            })
+            
+            stock = yf.Ticker(ticker, session=session)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=400)
             hist_data = stock.history(start=start_date.strftime('%Y-%m-%d'), 
                                     end=end_date.strftime('%Y-%m-%d'))
 
             if hist_data.empty:
+                print(f"WARNING: Nu s-au gasit date istorice pentru {ticker}", file=sys.stderr)
                 return None
 
             tz = hist_data.index.tz
@@ -51,7 +70,7 @@ class EmailMomentumCalculator:
                     'momentum': momentum
                 }
         except Exception as e:
-            print(f"Error fetching data for {ticker}: {e}")
+            print(f"ERROR: Eroare la procesarea datelor pentru {ticker}: {e}", file=sys.stderr)
         return None
 
     def create_etf_table_html(self, etfs_data, title):
@@ -74,19 +93,18 @@ class EmailMomentumCalculator:
         """
         
         for etf in etfs_data:
-            if etf:
-                momentum_color = "green" if etf['momentum'] >= 0 else "red"
-                html += f"""
-                <tr>
-                    <td><strong>{etf['ticker']}</strong></td>
-                    <td>{etf['current_price']:.2f}</td>
-                    <td>{etf['price_1m']:.2f}</td>
-                    <td>{etf['price_3m']:.2f}</td>
-                    <td>{etf['price_6m']:.2f}</td>
-                    <td>{etf['price_12m']:.2f}</td>
-                    <td style="color: {momentum_color}; font-weight: bold;">{etf['momentum']:.4f}</td>
-                </tr>
-                """
+            momentum_color = "green" if etf['momentum'] >= 0 else "red"
+            html += f"""
+            <tr>
+                <td><strong>{etf['ticker']}</strong></td>
+                <td>{etf['current_price']:.2f}</td>
+                <td>{etf['price_1m']:.2f}</td>
+                <td>{etf['price_3m']:.2f}</td>
+                <td>{etf['price_6m']:.2f}</td>
+                <td>{etf['price_12m']:.2f}</td>
+                <td style="color: {momentum_color}; font-weight: bold;">{etf['momentum']:.4f}</td>
+            </tr>
+            """
         
         html += """
             </tbody>
@@ -102,18 +120,18 @@ class EmailMomentumCalculator:
         """
         
         if not offensive_data or not defensive_data:
-            html += "<p><strong>❌ Date insuficiente pentru o recomandare.</strong></p>"
+            html += "<p><strong>❌ Date insuficiente pentru o recomandare completă. Unele API-uri au eșuat.</strong></p>"
             html += "</div>"
             return html
             
-        negative_offensive_count = sum(1 for etf in offensive_data if etf and etf['momentum'] < 0)
+        negative_offensive_count = sum(1 for etf in offensive_data if etf['momentum'] < 0)
         best_defensive = max(defensive_data, key=lambda x: x['momentum']) if defensive_data else None
         
         html += f"""
         <p><strong>📊 Analiză:</strong></p>
         <ul>
             <li>ETF-uri ofensive cu momentum negativ: {negative_offensive_count}</li>
-            <li>ETF-uri ofensive totale: {len(offensive_data)}</li>
+            <li>ETF-uri ofensive totale evaluate: {len(offensive_data)}</li>
         </ul>
         """
         
@@ -145,12 +163,12 @@ class EmailMomentumCalculator:
         """
         
         if offensive_data:
-            offensive_momentums = [etf['momentum'] for etf in offensive_data if etf]
+            offensive_momentums = [etf['momentum'] for etf in offensive_data]
             avg_offensive = sum(offensive_momentums) / len(offensive_momentums)
             html += f"<p><strong>📈 ETF-uri Ofensive - Momentum mediu:</strong> {avg_offensive:.4f}</p>"
             
         if defensive_data:
-            defensive_momentums = [etf['momentum'] for etf in defensive_data if etf]
+            defensive_momentums = [etf['momentum'] for etf in defensive_data]
             avg_defensive = sum(defensive_momentums) / len(defensive_momentums)
             html += f"<p><strong>🛡️ ETF-uri Defensive - Momentum mediu:</strong> {avg_defensive:.4f}</p>"
         
@@ -159,25 +177,14 @@ class EmailMomentumCalculator:
 
     def send_email(self, html_content):
         """Send email with the momentum report"""
-        # Email configuration
         smtp_server = "smtp.gmail.com"
         smtp_port = 587
         
-        # Înlocuiește cu datele de Gmail
-        sender_email = os.environ.get('SMTP_USER')
-        sender_password = os.environ.get('SMTP_PASS')
-        self.email_to = os.environ.get('EMAIL_TO')
-
-        if not all([sender_email, sender_password, self.email_to]):
-            raise ValueError("Credențialele SMTP sau destinația lipsesc din variabilele de mediu!")
-        
-        # Create message
         msg = MIMEMultipart('alternative')
         msg['Subject'] = f"ETF Momentum Report - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        msg['From'] = sender_email
+        msg['From'] = self.smtp_user
         msg['To'] = self.email_to
         
-        # Create HTML content
         html_template = f"""
         <!DOCTYPE html>
         <html>
@@ -190,8 +197,6 @@ class EmailMomentumCalculator:
                 table {{ border-collapse: collapse; width: 100%; }}
                 th, td {{ border: 1px solid #ddd; padding: 8px; text-align: center; }}
                 th {{ background-color: #f2f2f2; }}
-                .positive {{ color: green; font-weight: bold; }}
-                .negative {{ color: red; font-weight: bold; }}
             </style>
         </head>
         <body>
@@ -211,62 +216,53 @@ class EmailMomentumCalculator:
         msg.attach(html_part)
         
         try:
-            # Create server connection
             server = smtplib.SMTP(smtp_server, smtp_port)
             server.starttls()
-            server.login(sender_email, sender_password)
+            server.login(self.smtp_user, self.smtp_pass)
             
-            # Send email
             text = msg.as_string()
-            server.sendmail(sender_email, self.email_to, text)
+            server.sendmail(self.smtp_user, self.email_to, text)
             server.quit()
             
             print(f"✅ Raportul a fost trimis cu succes la {self.email_to}")
             
         except Exception as e:
-            print(f"❌ Eroare la trimiterea email-ului: {e}")
-            print("\n📧 Pentru a configura email-ul:")
-            print("1. Înlocuiește 'your_email@gmail.com' cu adresa ta Gmail")
-            print("2. Înlocuiește 'your_app_password' cu parola de aplicație Gmail")
-            print("3. Activează autentificarea cu 2 factori în Gmail")
-            print("4. Generează o parolă de aplicație în setările Gmail")
+            print(f"CRITICAL: Eroare la trimiterea email-ului: {e}", file=sys.stderr)
+            sys.exit(1)
 
     def run_analysis(self):
         """Run the complete momentum analysis and send email"""
         print("🔄 Se încarcă datele...")
         
-        # Fetch offensive ETFs data
         offensive_data = []
         for ticker in self.offensive_etfs:
             print(f"   📊 Se analizează {ticker}...")
             data = self.calculate_momentum(ticker)
-            offensive_data.append(data)
+            if data is not None:
+                offensive_data.append(data)
             time.sleep(0.5)
             
-        # Fetch defensive ETFs data
         defensive_data = []
         for ticker in self.defensive_etfs:
             print(f"   📊 Se analizează {ticker}...")
             data = self.calculate_momentum(ticker)
-            defensive_data.append(data)
+            if data is not None:
+                defensive_data.append(data)
             time.sleep(0.5)
             
         print("📧 Se generează raportul HTML...")
         
-        # Create HTML content
         html_content = ""
         html_content += self.create_etf_table_html(offensive_data, "ETF OFENSIVE")
         html_content += self.create_etf_table_html(defensive_data, "ETF DEFENSIVE")
         html_content += self.create_recommendation_html(offensive_data, defensive_data)
         html_content += self.create_summary_html(offensive_data, defensive_data)
         
-        # Send email
         self.send_email(html_content)
 
 def main():
-    """Main function"""
     calculator = EmailMomentumCalculator()
     calculator.run_analysis()
 
 if __name__ == "__main__":
-    main() 
+    main()
