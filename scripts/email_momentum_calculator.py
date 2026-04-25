@@ -159,14 +159,17 @@ class EmailMomentumCalculator:
 
     def send_email(self, html_content):
         """Send email with the momentum report"""
-        # Email configuration - you'll need to set these up
+        # Email configuration
         smtp_server = "smtp.gmail.com"
         smtp_port = 587
         
-        # ⚠️ CONFIGURARE NECESARĂ:
-        # Înlocuiește cu datele tale Gmail
-        sender_email = "sldragos2001@gmail.com"  # EX: "dragos@gmail.com"
-        sender_password = "njhi odzd farf krby"  # EX: "abcd efgh ijkl mnop"
+        # Înlocuiește cu datele de Gmail
+        sender_email = os.environ.get('SMTP_USER')
+        sender_password = os.environ.get('SMTP_PASS')
+        self.email_to = os.environ.get('EMAIL_TO')
+
+        if not all([sender_email, sender_password, self.email_to]):
+            raise ValueError("Credențialele SMTP sau destinația lipsesc din variabilele de mediu!")
         
         # Create message
         msg = MIMEMultipart('alternative')
