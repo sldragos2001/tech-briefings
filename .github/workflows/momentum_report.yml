@@ -44,5 +44,4 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: |
           set -e
-          # Calea actualizata catre directorul scripts/
           python3 scripts/email_momentum_calculator.py
