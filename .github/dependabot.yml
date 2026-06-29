@@ -8,8 +8,8 @@ updates:
       time: "09:00"
       timezone: "Europe/Bucharest"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "python"
+    #labels:
+    #  - "dependencies"
+    #  - "python"
     assignees:
       - "sldragos2001" # userul de GitHub
