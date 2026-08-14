@@ -1,102 +1,102 @@
-/*name: Daily Tech Briefing (GCP Native)
+#name: Daily Tech Briefing (GCP Native)
 
-on:
-  schedule:
-    - cron: '58 8 * * 1,4'
-  workflow_dispatch:
+#on:
+#  schedule:
+#    - cron: '58 8 * * 1,4'
+#  workflow_dispatch:
 
-permissions:
-  contents: write
-  id-token: write # Necesar pentru OIDC
+#permissions:
+#  contents: write
+#  id-token: write # Necesar pentru OIDC
 
-jobs:
-  generate-briefing:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+#jobs:
+#  generate-briefing:
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 10
 
-    env:
-      PROJECT_ID: "project-f90c6781-8350-497f-bc7"
-      LOCATION: "us-central1"
-      WORKLOAD_IDENTITY_PROVIDER: "projects/832877221895/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-      SERVICE_ACCOUNT: "briefing-generator@project-f90c6781-8350-497f-bc7.iam.gserviceaccount.com"
+#    env:
+#      PROJECT_ID: "project-f90c6781-8350-497f-bc7"
+#      LOCATION: "us-central1"
+#      WORKLOAD_IDENTITY_PROVIDER: "projects/832877221895/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+#      SERVICE_ACCOUNT: "briefing-generator@project-f90c6781-8350-497f-bc7.iam.gserviceaccount.com"
+#
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v6.0.2
+#
+#      - name: Google Auth
+#        uses: google-github-actions/auth@v3
+#        with:
+#          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+#          service_account: ${{ env.SERVICE_ACCOUNT }}
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6.0.2
+ #     - name: Set up Cloud SDK
+ #       uses: google-github-actions/setup-gcloud@v3
 
-      - name: Google Auth
-        uses: google-github-actions/auth@v3
-        with:
-          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.SERVICE_ACCOUNT }}
+ #     - name: Generate Briefing (The "Full Breath" Version)
+ #       shell: bash
+ #       env:
+ #         GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+ #       run: |
+ #         set -euo pipefail
+ #         DISPLAY_DATE=$(date +'%d %b %Y')
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v3
+ #        echo "🚀 Generăm briefing-ul complet pentru $DISPLAY_DATE..."
 
-      - name: Generate Briefing (The "Full Breath" Version)
-        shell: bash
-        env:
-          GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-        run: |
-          set -euo pipefail
-          DISPLAY_DATE=$(date +'%d %b %Y')
+ #         PROMPT_DATA=$(jq -n \
+ #           --arg display_date "$DISPLAY_DATE" \
+ #           --arg prompt "Act as a senior engineering analyst. Generate the 'Daily Engineering Briefing' for today, $DISPLAY_DATE (Europe/Bucharest).
 
-          echo "🚀 Generăm briefing-ul complet pentru $DISPLAY_DATE..."
+ #           STRUCTURE:
+ #           1. Title: 'Daily Tech Briefing — $DISPLAY_DATE'
+ #           2. Sections: AI, Cloud Computing, DevOps. (2 items per section).
+ #           3. Each item MUST follow this format:
+ #              - [Category] — [Headline]
+ #              - [A detailed paragraph]
+ #              - 'Kink:' [One-sentence insight]
+ #              - 'Why it matters:' [3 bullet points]
+ #           4. Footer: A concise 'TL;DR' summary.
 
-          PROMPT_DATA=$(jq -n \
-            --arg display_date "$DISPLAY_DATE" \
-            --arg prompt "Act as a senior engineering analyst. Generate the 'Daily Engineering Briefing' for today, $DISPLAY_DATE (Europe/Bucharest).
+ #           TONE: OpenAI-esque, punchy, expert.
+ #           STRICT RULE: Ensure the TL;DR is complete and the response ends with a proper concluding sentence. Total length: 500-700 words." \
+ #           '{
+ #             contents: [{ parts: [{ text: $prompt }] }],
+ #             generationConfig: { 
+ #               maxOutputTokens: 4096, 
+ #               temperature: 0.8,
+ #               topP: 0.95
+ #             }
+ #           }')
 
-            STRUCTURE:
-            1. Title: 'Daily Tech Briefing — $DISPLAY_DATE'
-            2. Sections: AI, Cloud Computing, DevOps. (2 items per section).
-            3. Each item MUST follow this format:
-               - [Category] — [Headline]
-               - [A detailed paragraph]
-               - 'Kink:' [One-sentence insight]
-               - 'Why it matters:' [3 bullet points]
-            4. Footer: A concise 'TL;DR' summary.
+ #         RESPONSE=$(curl -s -X POST \
+ #           -H "Content-Type: application/json" \
+ #           -d "$PROMPT_DATA" \
+ #           "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}")
 
-            TONE: OpenAI-esque, punchy, expert.
-            STRICT RULE: Ensure the TL;DR is complete and the response ends with a proper concluding sentence. Total length: 500-700 words." \
-            '{
-              contents: [{ parts: [{ text: $prompt }] }],
-              generationConfig: { 
-                maxOutputTokens: 4096, 
-                temperature: 0.8,
-                topP: 0.95
-              }
-            }')
+ #         # Verificăm dacă avem text și dacă nu a fost tăiat (finishReason)
+ #         if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
+ #           echo "❌ EROARE API:"
+ #           echo "$RESPONSE" | jq '.'
+ #           exit 1
+ #         fi
 
-          RESPONSE=$(curl -s -X POST \
-            -H "Content-Type: application/json" \
-            -d "$PROMPT_DATA" \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}")
-
-          # Verificăm dacă avem text și dacă nu a fost tăiat (finishReason)
-          if ! echo "$RESPONSE" | jq -e '.candidates[0].content.parts[0].text' > /dev/null 2>&1; then
-            echo "❌ EROARE API:"
-            echo "$RESPONSE" | jq '.'
-            exit 1
-          fi
-
-          # Salvăm rezultatul
-          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
+ #         # Salvăm rezultatul
+ #         echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > briefing_output.md
           
           # Debug: vedem dacă s-a terminat ok
-          echo "✅ Briefing generat. Ultima linie este:"
-          tail -n 1 briefing_output.md
+ #         echo "✅ Briefing generat. Ultima linie este:"
+ #         tail -n 1 briefing_output.md
           
-      - name: Commit and Push
-        shell: bash
-        run: |
-          set -euo pipefail
-          DATE_PATH="briefings/$(date +%Y/%m)"
-          mkdir -p "$DATE_PATH"
-          mv briefing_output.md "$DATE_PATH/$(date +%F).md"
+ #     - name: Commit and Push
+ #       shell: bash
+ #       run: |
+ #         set -euo pipefail
+ #         DATE_PATH="briefings/$(date +%Y/%m)"
+ #         mkdir -p "$DATE_PATH"
+ #         mv briefing_output.md "$DATE_PATH/$(date +%F).md"
           
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "$DATE_PATH"
-          git commit -m "docs: daily briefing $(date +%F)" || exit 0
-          git push*/
+ #         git config user.name "github-actions[bot]"
+ #         git config user.email "github-actions[bot]@users.noreply.github.com"
+ #         git add "$DATE_PATH"
+ #         git commit -m "docs: daily briefing $(date +%F)" || exit 0
+ #         git push*/
