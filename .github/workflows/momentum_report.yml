@@ -21,11 +21,11 @@ jobs:
 
       - name: Checkout repository
         if: env.run_job == 'true'
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v6
 
       - name: Set up Python
         if: env.run_job == 'true'
-        uses: actions/setup-python@v6.2.0
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
           cache: 'pip'
